@@ -15,12 +15,20 @@ use std::fs;
 
 #[derive(Parser)]
 struct CliParams {
-        /// The path to the config file
-        #[arg(short, long, default_value = "config.toml")]
-        config: String,
+    /// The path to the config file
+    #[arg(short, long, default_value = "config.toml")]
+    config: String,
+    
+    /// The path to the input file (overrides config if provided)
+    #[arg(long)]
+    input: Option<String>,
+    
+    /// The path to the output file (overrides config if provided)
+    #[arg(long)]
+    output: Option<String>,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Debug)]
 struct Config {
     input: String,
     output: String,
@@ -36,14 +44,19 @@ fn read_config(file_path: &str) -> Result<Config, Box<dyn std::error::Error>> {
 }
 
 
-fn main() {
+fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cli_params = CliParams::parse();
+    
     println!("Input file: {}", cli_params.config);
-    match read_config(&cli_params.config) {
-        Ok(config) => {
-            println!("Input: {}", config.input);
-            println!("Output: {}", config.output);
-        },
-        Err(e) => eprintln!("Error reading config: {}", e),
+    let mut config = read_config(&cli_params.config)?;
+    
+    if let Some(input) = cli_params.input {
+        config.input = input;        
     }
+    if let Some(output) = cli_params.output {
+        config.output = output;        
+    }
+    
+    println!("Final Config: {:?}", config);
+    Ok(())
 }
