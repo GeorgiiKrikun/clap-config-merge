@@ -71,12 +71,22 @@ enum Commands {
     }
 }
 
-fn read_config(file_path: &str) -> Result<Args, Box<dyn std::error::Error>> {
+#[derive(Debug, thiserror::Error)]
+enum ConfigParserError {
+    #[error("I/O error: {0}")]
+    IoError(#[from] std::io::Error),
+    
+    #[error("TOML parsing error: {0}")]
+    TomlError(#[from] toml::de::Error),
+}
+
+fn read_config<ArgsType>(config: &ConfigArgs) -> Result<ArgsType, ConfigParserError> 
+where ArgsType: for<'a> Deserialize<'a> {
     // Read the file content
-    let content = fs::read_to_string(file_path)?;
+    let content = fs::read_to_string(&config.input)?;
     
     // Parse the TOML into the Config struct
-    let config: Args =  toml::from_str(&content)?;
+    let config: ArgsType = toml::from_str(&content)?;
     Ok(config)
 }
 
@@ -91,7 +101,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         } else {
             let cfg_args = cfg_args.as_ref().unwrap();
             println!("Parsed config arguments: {:?}", cfg_args);
-            let config = read_config(&cfg_args.input)?;
+            let config = read_config::<Args>(&cfg_args)?;
             println!("Parsed config: {:?}", config);
         }
     } else {
