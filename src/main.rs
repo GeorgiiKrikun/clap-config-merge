@@ -1,45 +1,40 @@
 use clap::{ Parser,Subcommand};
-use serde::Deserialize;
+use figment::{Figment, providers::{Format, Toml, Env, Serialized}};
+use serde::{Deserialize, Serialize};
 use std::fs;
 use chrono::Utc;
 
 pub const DATETIME_FORMAT: &str = "%Y-%m-%d-%H-%M-%S";
 
-#[derive(Parser, Debug, Deserialize)]
+#[derive(Parser, Debug, Deserialize, Serialize)]
 #[command(name = "LSTM Plotter")]
 #[command(author = "Your Name <georgii.krikun@gmail.com>")]
 #[command(version = "0.1.0")]
 #[command(about = "Tests an LSTM on binance data files", long_about = None)]
 struct Args {
-    #[arg(short, long, value_name = "PATTERN", num_args(1..), required = true)]
-    input: Vec<String>,
+    #[arg(short, long, value_name = "PATTERN", num_args(1..))]
+    input: Option<Vec<String>>,
     
-    #[arg(short, long, required = true)]
-    model: String,
+    #[arg(short, long)]
+    model: Option<String>,
     
-    #[arg(short, long, required = true)]
+    #[arg(short, long)]
     output: Option<String>,
     
-    #[arg(short, long, default_value_t = 1024)]
-    batch_size: usize,
+    #[arg(short, long)]
+    batch_size: Option<usize>,
     
     #[command(subcommand)]
-    command: Commands,
+    command: Option<Commands>,
 }
 
-#[derive(Parser, Debug)]
-struct ConfigArgs {
-    #[arg(short, long, required = true)]
-    conf_file: String,
-}
-
-#[derive(Subcommand, Debug, Deserialize)]
+#[derive(Subcommand, Debug, Deserialize, Serialize)]
 enum Commands {
     Single {
-        #[arg(short, long, required = true,
+        #[arg(short, long,
             help = format!("Datetime in {} format (e.g., {})", DATETIME_FORMAT, Utc::now().format(DATETIME_FORMAT).to_string())
         )]
-        datetime: String,
+        datetime: Option<String>,
         
         #[arg(short, long, action = clap::ArgAction::SetTrue)] 
         absolute: bool,
@@ -48,12 +43,12 @@ enum Commands {
         #[arg(short, long, required = true,
             help = format!("Start Datetime in {} format (e.g., {})", DATETIME_FORMAT, Utc::now().format(DATETIME_FORMAT).to_string())
         )]
-        datetime_start: String,
+        datetime_start: Option<String>,
         
         #[arg(long, required = true,
             help = "Duration (e.g., 4h for a 4-hour window)"
         )]
-        duration: String,
+        duration: Option<String>,
         
         #[arg(short, long, action = clap::ArgAction::SetTrue)] 
         absolute: bool,
@@ -62,13 +57,46 @@ enum Commands {
         #[arg(short, long, required = true,
             help = format!("Start Datetime in {} format (e.g., {})", DATETIME_FORMAT, Utc::now().format(DATETIME_FORMAT).to_string())
         )]
-        datetime_start: String,
+        datetime_start: Option<String>,
         
         #[arg(long, required = true,
             help = "Duration (e.g., 4h for a 4-hour window)"
         )]
-        duration: String,
+        duration: Option<String>,
     }
+}
+
+// 1. We use this just to get the config file path from the CLI
+#[derive(Parser, Debug, Serialize)]
+struct ProviderArgs {
+    #[arg(short, long)]
+    conf_file: Option<String>,
+}
+
+fn parse_config<ArgsType>() -> Result<ArgsType, ConfigParserError> 
+where ArgsType: for<'a> Deserialize<'a> 
+    + Parser
+    + serde::Serialize
+    + std::fmt::Debug
+{
+    let provider_args = ProviderArgs::try_parse().ok();
+    println!("Provider args: {:#?}", provider_args);
+    
+    let mut figment = Figment::new()
+        .merge(Env::prefixed("APP_").split("__"));
+    
+    if let Some(args) = provider_args {
+        if let Some(path) = args.conf_file {
+            figment = figment.merge(Toml::file(path));
+        }
+    }
+    
+    println!("Figment after merging env and file: {:#?}", figment);
+    let cli_provider = Serialized::defaults(ArgsType::parse());
+    println!("CLI provider: {:#?}", cli_provider);
+    figment = figment.merge(cli_provider);
+    
+    figment.extract().map_err(ConfigParserError::from)
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -82,65 +110,19 @@ enum ConfigParserError {
     #[error("Command-line parsing error: {0}")]
     ClapError(#[from] clap::error::Error),
     
-    #[error("Multiple errors occurred:\n{}", format_multiple(.0))]
-    Multiple(Vec<ConfigParserError>),
-}
-
-// Helper function to join the errors properly
-fn format_multiple(errors: &[ConfigParserError]) -> String {
-    errors.iter()
-        .map(|e| e.to_string()) // This calls the Display trait, which handles ANSI codes
-        .collect::<Vec<_>>()
-        .join("\n---\n") // Visual separator between errors
-}
-
-fn read_config<ArgsType>(config: &ConfigArgs) -> Result<ArgsType, ConfigParserError> 
-where ArgsType: for<'a> Deserialize<'a> {
-    // Read the file content
-    let content = fs::read_to_string(&config.conf_file)?;
-    
-    // Parse the TOML into the Config struct
-    let config: ArgsType = toml::from_str(&content)?;
-    Ok(config)
-}
-
-fn parse_config<ArgsType>() -> Result<ArgsType, ConfigParserError> 
-where ArgsType: for<'a> Deserialize<'a> + Parser + std::fmt::Debug
-{
-    let cli_args = ArgsType::try_parse()
-        .map_err(ConfigParserError::from);
-    let cfg_args = ConfigArgs::try_parse()
-        .map_err(ConfigParserError::from)
-        .and_then(|cfg_args| {
-            read_config::<ArgsType>(&cfg_args)
-        });
-    
-    log::debug!("Parsed command-line arguments: {:?}", cli_args);
-    log::debug!("Parsed config arguments: {:?}", cfg_args);
-    
-    match (cli_args, cfg_args) {
-        (Ok(cli_args), Ok(_)) => Ok(cli_args),
-        (Ok(cli_args), Err(_)) => Ok(cli_args),
-        (Err(_), Ok(cfg_args)) => Ok(cfg_args),
-        (Err(cli_err), Err(cfg_err)) => {
-            let errors = vec![
-                cli_err,
-                cfg_err,
-            ];
-            Err(ConfigParserError::Multiple(errors))
-        }
-    }
+    #[error("Figment error: {0}")]
+    FigmentError(#[from] figment::Error),
 }
 
 fn main() {
     env_logger::init();
-    let args = parse_config::<Args>();
-    match args {
+    match parse_config::<Args>() {
         Ok(args) => {
-            log::info!("Successfully parsed arguments: {:?}", args);
+            println!("Parsed configuration: {:#?}", args);
+            // Here you would call your main application logic, passing `args`
         },
         Err(e) => {
-            log::error!("Error parsing arguments: {}", e);
+            eprintln!("Error parsing configuration:\n{}", e);
             std::process::exit(1);
         }
     }
