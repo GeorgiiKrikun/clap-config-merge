@@ -94,6 +94,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let config = read_config(&cfg_args.input)?;
             println!("Parsed config: {:?}", config);
         }
+    } else {
+        let args = args.as_ref().unwrap();
+        println!("Parsed command-line arguments: {:?}", args);
     }
     
     Ok(())
