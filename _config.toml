@@ -1,6 +1,0 @@
-# The path to the input file
-input = "path/to/your/input/file.txt"
-
-# The path to the output file
-output = "path/to/your/output/file.txt"
-
