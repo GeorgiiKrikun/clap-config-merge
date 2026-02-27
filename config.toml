@@ -1,6 +1,9 @@
-# The path to the input file
-input = "path/to/your/input/file.txt"
+input = ["data/binance_*.csv"]
+model = "models/lstm_model.pt"
+output = "results/output.json"
+batch_size = 256
 
-# The path to the output file
-output = "path/to/your/output/file.txt"
+[command.Single]
+datetime = "2024-01-15-14-30-45"
+absolute = true
 
